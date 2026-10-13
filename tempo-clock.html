@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tempo Clock</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&family=Barlow+Condensed:wght@500;600&family=JetBrains+Mono:wght@500;700&family=Fraunces:wght@500;700&family=Outfit:wght@400;600&family=DM+Sans:wght@400;500;700&display=swap">
+<style>
+/* Layout: preview stage on the left (sticky), grouped controls on the right; stacks on phones.
+   Widget mode (?cities=...) hides everything except the transparent clock. */
+:root{
+  --bg:#f1f5f4; --panel:#ffffff; --fg:#13211f; --muted:#587270; --line:#d5dfdd;
+  --ac:#0c7c77; --ac-ink:#ffffff; --field:#f6f9f8; --danger:#b3261e;
+  --ui:'DM Sans',system-ui,sans-serif; --display:'Bricolage Grotesque','DM Sans',system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1514; --panel:#142120; --fg:#e4eeec; --muted:#94aaa7; --line:#243837;
+  --ac:#4fd1c5; --ac-ink:#062321; --field:#0f1a19; --danger:#ff8a80; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1514; --panel:#142120; --fg:#e4eeec; --muted:#94aaa7; --line:#243837;
+  --ac:#4fd1c5; --ac-ink:#062321; --field:#0f1a19; --danger:#ff8a80; color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:14px;line-height:1.5;padding-inline:16px;padding-block:20px 40px}
+html.widget body{background:transparent;padding:8px}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px 24px;flex-wrap:wrap}
+h1{font-family:var(--display);font-size:clamp(26px,4vw,34px);line-height:1.1;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.top p{margin:6px 0 0;color:var(--muted);max-width:52ch}
+.status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;max-width:46ch}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.status.live .dot{background:#2fb36a}
+.status.sample .dot{background:#d99a1c}
+
+.cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:860px){.cols{grid-template-columns:minmax(0,1fr)}}
+.left{display:flex;flex-direction:column;gap:14px;position:sticky;top:env(safe-area-inset-top,0px);padding-top:0}
+@media (max-width:860px){.left{position:static}}
+
+.stage{border-radius:14px;border:1px solid var(--line);min-height:240px;padding:24px;overflow:auto;display:flex;align-items:center}
+.stage[data-bg="checker"]{background:#8b9695 conic-gradient(#aab4b3 25%,#8b9695 0 50%,#aab4b3 0 75%,#8b9695 0) 0 0/20px 20px}
+.stage[data-bg="dark"]{background:#161b22}
+.stage[data-bg="light"]{background:#e9edf2}
+.tools{display:flex;gap:10px 16px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:12.5px}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.card h2{font-family:var(--display);font-size:15px;margin:0;letter-spacing:.01em}
+.hint{color:var(--muted);font-size:12.5px;margin:0}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:0}
+input[type=text],input[type=number],select{background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;width:100%}
+input[type=color]{width:100%;height:36px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--field)}
+input[type=range]{width:100%;accent-color:var(--ac)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.row>*{flex:1 1 120px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:420px){.grid3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--field);max-width:100%;flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:7px 12px;cursor:pointer;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ac);color:var(--ac-ink);font-weight:600}
+.field-line{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.field-line>span{font-size:13px}
+.tog{display:flex;align-items:center;gap:8px;cursor:pointer}
+.tog input{accent-color:var(--ac);width:16px;height:16px}
+
+button.btn{background:var(--ac);color:var(--ac-ink);border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer}
+button.ghost:hover{border-color:var(--ac)}
+
+ul.locs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+ul.locs li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--field)}
+ul.locs input{background:transparent;border:0;border-bottom:1px solid transparent;border-radius:0;padding:2px 0;font-weight:600}
+ul.locs input:focus{border-bottom-color:var(--ac);outline:none}
+.tzs{grid-column:1;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.rowbtns{grid-column:2;grid-row:1/3;display:flex;gap:4px}
+.rowbtns button{width:30px;height:30px;border:1px solid var(--line);background:var(--panel);border-radius:7px;cursor:pointer;line-height:1}
+.rowbtns button:disabled{opacity:.35;cursor:default}
+details summary{cursor:pointer;color:var(--ac);font-weight:600;font-size:13px}
+details[open] summary{margin-bottom:10px}
+.err{color:var(--danger);font-size:12.5px;min-height:1em;margin:0}
+
+.out{font-family:ui-monospace,'JetBrains Mono',monospace;font-size:12px;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-wrap:anywhere;user-select:all;max-height:140px;overflow:auto}
+.steps{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;display:flex;flex-direction:column;gap:3px}
+
+/* ---------- the clock widget itself ---------- */
+.cw{--fg:#f5f7fa;--ac:#5eead4;--bgc:11,18,32;--op:.6;--sc:1;--wf:'Bricolage Grotesque',system-ui,sans-serif;
+  font-family:var(--wf);font-size:calc(16px*var(--sc));color:var(--fg);display:flex;gap:.75em;width:max-content;max-width:100%;line-height:1.15}
+.cw.ly-row{flex-direction:row;flex-wrap:wrap}
+.cw.ly-col{flex-direction:column;align-items:flex-start}
+.cw.ly-grid{display:grid;grid-template-columns:repeat(2,max-content)}
+.cw .loc{display:flex;flex-direction:column;gap:.3em;min-width:0}
+.cw .nm{font-size:.78em;letter-spacing:.1em;text-transform:uppercase;opacity:.78;font-weight:600}
+.cw .tm{font-size:2.5em;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cw .sc{font-size:.42em;opacity:.65;margin-left:.12em}
+.cw .ap{font-size:.36em;margin-left:.3em;color:var(--ac);font-weight:700;letter-spacing:.04em}
+.cw .mt{display:flex;gap:.9em;font-size:.85em;align-items:center;white-space:nowrap}
+.cw .dt{opacity:.85}
+.cw .tp{display:inline-flex;align-items:center;gap:.35em;color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.cw .tp svg{width:1.2em;height:1.2em;flex:none}
+.cw.no-date .dt,.cw.no-temp .tp{display:none}
+.cw.no-date.no-temp .mt{display:none}
+.cw.st-plain .loc{text-shadow:0 1px 8px rgba(0,0,0,.35)}
+.cw.st-cards .loc{background:rgba(var(--bgc),var(--op));padding:.75em 1.05em;border-radius:.95em}
+.cw.st-strip{background:rgba(var(--bgc),var(--op));padding:.8em .6em;border-radius:1em;gap:0}
+.cw.st-strip .loc{padding:0 1.1em}
+.cw.st-strip.ly-row .loc+.loc{border-left:1px solid color-mix(in srgb,var(--fg) 22%,transparent)}
+.cw.st-strip.ly-col .loc+.loc{border-top:1px solid color-mix(in srgb,var(--fg) 22%,transparent);margin-top:.7em;padding-top:.7em}
+.cw.st-strip.ly-grid{gap:.9em 0}
+</style>
+
+<div class="wrap" id="settings">
+  <header class="top">
+    <div>
+      <h1>Tempo Clock</h1>
+      <p>World clocks with the current temperature for each place. Set it up here, then paste the generated link into an OBS browser source.</p>
+    </div>
+    <div class="status" id="wxStatus" role="status"><span class="dot"></span><span id="wxText">Checking temperatures…</span></div>
+  </header>
+
+  <div class="cols">
+    <div class="left">
+      <div class="stage" id="stage" data-bg="checker"><div id="preview"></div></div>
+      <div class="tools">
+        <span>Preview on</span>
+        <div class="seg" data-k="backdrop" data-o="checker:Transparent|dark:Dark|light:Light"></div>
+      </div>
+
+      <div class="card">
+        <h2>Your widget link</h2>
+        <label class="f">Where you host tempo-clock.html
+          <input type="text" id="base" placeholder="https://your-site.example/tempo-clock.html" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="out" id="url" aria-label="Generated link"></div>
+        <div class="row" style="align-items:center">
+          <button class="btn" id="copy" type="button" style="flex:0 0 auto">Copy link</button>
+          <span class="hint" id="copyMsg" style="flex:1 1 160px"></span>
+        </div>
+        <ol class="steps">
+          <li>In OBS, add a Browser source and paste the link.</li>
+          <li>Set the size to about <strong id="size">—</strong>. The background is transparent.</li>
+          <li>Change the settings here later and paste the new link in.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="right" style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div class="card">
+        <h2>Locations</h2>
+        <ul class="locs" id="locList"></ul>
+        <div class="row">
+          <label class="f">Add a city
+            <select id="presetSel"></select>
+          </label>
+          <button class="ghost" id="addPreset" type="button" style="flex:0 0 auto">Add</button>
+        </div>
+        <details>
+          <summary>Add your own place</summary>
+          <div class="grid2">
+            <label class="f">Name<input type="text" id="cName" placeholder="Dipaculao"></label>
+            <label class="f">Time zone<input type="text" id="cTz" list="tzlist" placeholder="Asia/Manila" autocomplete="off"></label>
+            <label class="f">Latitude<input type="text" id="cLa" inputmode="decimal" placeholder="16.03"></label>
+            <label class="f">Longitude<input type="text" id="cLo" inputmode="decimal" placeholder="121.69"></label>
+          </div>
+          <datalist id="tzlist"></datalist>
+          <div class="row" style="margin-top:10px;align-items:center">
+            <button class="ghost" id="addCustom" type="button" style="flex:0 0 auto">Add place</button>
+            <p class="err" id="cErr" style="flex:1 1 160px"></p>
+          </div>
+          <p class="hint">Latitude and longitude are only used to look up the temperature.</p>
+        </details>
+        <p class="hint" id="locHint">Up to 6 locations.</p>
+      </div>
+
+      <div class="card">
+        <h2>Time and date</h2>
+        <div class="field-line"><span>Clock format</span><div class="seg" data-k="h" data-o="12:12-hour|24:24-hour"></div></div>
+        <label class="tog"><input type="checkbox" data-k="sec"> Show seconds</label>
+        <label class="tog"><input type="checkbox" data-k="date"> Show the date</label>
+      </div>
+
+      <div class="card">
+        <h2>Temperature</h2>
+        <label class="tog"><input type="checkbox" data-k="temp"> Show temperature and weather icon</label>
+        <div class="field-line"><span>Unit</span><div class="seg" data-k="unit" data-o="c:°C|f:°F"></div></div>
+        <label class="f">Refresh every
+          <select data-k="wx">
+            <option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="card">
+        <h2>Look</h2>
+        <div class="field-line"><span>Layout</span><div class="seg" data-k="layout" data-o="row:Row|col:Column|grid:Grid"></div></div>
+        <div class="field-line"><span>Style</span><div class="seg" data-k="style" data-o="plain:Plain|cards:Cards|strip:Strip"></div></div>
+        <label class="f">Font
+          <select data-k="font">
+            <option>Bricolage Grotesque</option><option>Barlow Condensed</option><option>JetBrains Mono</option>
+            <option>Fraunces</option><option>Outfit</option><option>DM Sans</option><option value="system-ui">System</option>
+          </select>
+        </label>
+        <div class="grid3">
+          <label class="f">Text<input type="color" data-k="fg"></label>
+          <label class="f">Accent<input type="color" data-k="ac"></label>
+          <label class="f">Panel<input type="color" data-k="bg"></label>
+        </div>
+        <label class="f">Panel opacity <output data-o="op"></output>
+          <input type="range" min="0" max="100" step="5" data-k="op">
+        </label>
+        <label class="f">Size <output data-o="scale"></output>
+          <input type="range" min="50" max="200" step="5" data-k="scale">
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="wroot"></div>
+
+<script>
+//#pure-start
+const PRESETS=[
+ ["Manila","Asia/Manila",14.5995,120.9842],["Auckland","Pacific/Auckland",-36.8485,174.7633],
+ ["Sydney","Australia/Sydney",-33.8688,151.2093],["Tokyo","Asia/Tokyo",35.6762,139.6503],
+ ["Singapore","Asia/Singapore",1.3521,103.8198],["Hong Kong","Asia/Hong_Kong",22.3193,114.1694],
+ ["Dubai","Asia/Dubai",25.2048,55.2708],["Mumbai","Asia/Kolkata",19.076,72.8777],
+ ["London","Europe/London",51.5072,-0.1276],["Paris","Europe/Paris",48.8566,2.3522],
+ ["Berlin","Europe/Berlin",52.52,13.405],["New York","America/New_York",40.7128,-74.006],
+ ["Chicago","America/Chicago",41.8781,-87.6298],["Denver","America/Denver",39.7392,-104.9903],
+ ["Los Angeles","America/Los_Angeles",34.0522,-118.2437],["Vancouver","America/Vancouver",49.2827,-123.1207],
+ ["Honolulu","Pacific/Honolulu",21.3099,-157.8581],["São Paulo","America/Sao_Paulo",-23.5505,-46.6333],
+ ["Cape Town","Africa/Johannesburg",-33.9249,18.4241]
+];
+const L=n=>{const p=PRESETS.find(x=>x[0]===n);return{n:p[0],tz:p[1],la:p[2],lo:p[3]}};
+const DEF={locs:[L("Manila"),L("Auckland"),L("London"),L("New York")],h:"12",sec:false,date:true,temp:true,unit:"c",
+ layout:"row",style:"cards",font:"Bricolage Grotesque",fg:"#f5f7fa",ac:"#5eead4",bg:"#0b1220",op:60,scale:100,wx:10};
+const clone=o=>JSON.parse(JSON.stringify(o));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const validTz=tz=>{try{new Intl.DateTimeFormat("en-US",{timeZone:tz});return true}catch(e){return false}};
+const hexOk=s=>/^[0-9a-f]{6}$/i.test(s);
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const cleanName=n=>String(n).replace(/[~!]/g,"").trim().slice(0,24);
+
+function toQuery(c){
+  const q=[];
+  q.push("cities="+c.locs.map(l=>[cleanName(l.n),l.tz,l.la,l.lo].map(encodeURIComponent).join("~")).join("!"));
+  q.push("h="+c.h,"sec="+(+c.sec),"date="+(+c.date),"temp="+(+c.temp),"unit="+c.unit,
+    "layout="+c.layout,"style="+c.style,"font="+encodeURIComponent(c.font),
+    "fg="+c.fg.slice(1),"ac="+c.ac.slice(1),"bg="+c.bg.slice(1),"op="+c.op,"scale="+c.scale,"wx="+c.wx);
+  return q.join("&");
+}
+function fromParams(p){
+  const c=clone(DEF);
+  const cs=p.get("cities");
+  if(cs){
+    const arr=cs.split("!").map(s=>{const[a,b,d,e]=s.split("~");return{n:cleanName(a||""),tz:b,la:parseFloat(d),lo:parseFloat(e)}})
+      .filter(l=>l.n&&validTz(l.tz)&&isFinite(l.la)&&isFinite(l.lo)).slice(0,6);
+    if(arr.length)c.locs=arr;
+  }
+  if(p.has("h"))c.h=p.get("h")==="24"?"24":"12";
+  ["sec","date","temp"].forEach(k=>{if(p.has(k))c[k]=p.get(k)==="1"});
+  if(p.has("unit"))c.unit=p.get("unit")==="f"?"f":"c";
+  if(["row","col","grid"].includes(p.get("layout")))c.layout=p.get("layout");
+  if(["plain","cards","strip"].includes(p.get("style")))c.style=p.get("style");
+  if(p.get("font"))c.font=p.get("font").slice(0,40);
+  ["fg","ac","bg"].forEach(k=>{if(hexOk(p.get(k)||""))c[k]="#"+p.get(k)});
+  if(p.has("op"))c.op=clamp(+p.get("op")||0,0,100);
+  if(p.has("scale"))c.scale=clamp(+p.get("scale")||100,50,200);
+  if(p.has("wx"))c.wx=clamp(+p.get("wx")||10,5,60);
+  return c;
+}
+const fmtCache={};
+function parts(tz,h,now){
+  const k=tz+h;
+  const f=fmtCache[k]||(fmtCache[k]=new Intl.DateTimeFormat("en-US",{timeZone:tz,hour:h==="12"?"numeric":"2-digit",
+    minute:"2-digit",second:"2-digit",hourCycle:h==="12"?"h12":"h23",weekday:"short",day:"numeric",month:"short"}));
+  const o={};f.formatToParts(now).forEach(p=>{o[p.type]=p.value});return o;
+}
+const hexRgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)).join(",");
+const wxKey=l=>l.la+","+l.lo;
+const ICONS={
+ sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+ moon:'<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+ cloud:'<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.6 4.2 4.2 0 0 0 7 18z"/>',
+ part:'<circle cx="8" cy="8" r="2.5"/><path d="M8 3v1M3 8H2M4.5 4.5l.7.7M11.5 4.5l-.7.7"/><path d="M9 20h8a3.5 3.5 0 0 0 .5-7 5 5 0 0 0-9.6 1A3 3 0 0 0 9 20z"/>',
+ rain:'<path d="M7 15h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 6.6 4.2 4.2 0 0 0 7 15z"/><path d="M8 18l-1 3M12 18l-1 3M16 18l-1 3"/>',
+ snow:'<path d="M7 15h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 6.6 4.2 4.2 0 0 0 7 15z"/><path d="M8 19h.01M12 19h.01M16 19h.01M10 21.5h.01M14 21.5h.01"/>',
+ storm:'<path d="M7 15h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 6.6 4.2 4.2 0 0 0 7 15z"/><path d="M12 15l-2 3.5h3L11 22"/>',
+ fog:'<path d="M4 9h16M3 13h18M5 17h14"/>'
+};
+function icon(k,day){
+  let n="cloud";
+  if(k===0||k===1)n=day?"sun":"moon";
+  else if(k===2)n=day?"part":"cloud";
+  else if(k===45||k===48)n="fog";
+  else if((k>=51&&k<=67)||(k>=80&&k<=82))n="rain";
+  else if((k>=71&&k<=77)||k===85||k===86)n="snow";
+  else if(k>=95)n="storm";
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+ICONS[n]+'</svg>';
+}
+function sampleWx(l){
+  const base=28-Math.abs(l.la)*0.32+((Math.abs(l.la*7)%3)-1.5);
+  const kinds=[0,2,3,61,45,1];
+  return{c:base,k:kinds[Math.floor(Math.abs(l.lo))%kinds.length],d:1,live:false};
+}
+//#pure-end
+
+const $=s=>document.querySelector(s);
+const wx={};
+let cfg=clone(DEF);
+const P=new URLSearchParams(location.search);
+const WIDGET=P.has("cities");
+
+function build(root,c){
+  root.className="cw ly-"+c.layout+" st-"+c.style+(c.date?"":" no-date")+(c.temp?"":" no-temp");
+  root.style.setProperty("--fg",c.fg);
+  root.style.setProperty("--ac",c.ac);
+  root.style.setProperty("--bgc",hexRgb(c.bg));
+  root.style.setProperty("--op",c.op/100);
+  root.style.setProperty("--sc",c.scale/100);
+  root.style.setProperty("--wf",c.font==="system-ui"?"system-ui,sans-serif":"'"+c.font.replace(/'/g,"")+"',system-ui,sans-serif");
+  root.innerHTML=c.locs.map(l=>'<div class="loc"><div class="nm">'+esc(l.n)+'</div><div class="tm"><span class="hm"></span><span class="sc"></span><span class="ap"></span></div><div class="mt"><span class="dt"></span><span class="tp"></span></div></div>').join("");
+}
+function tick(root,c){
+  const now=new Date();
+  root.querySelectorAll(".loc").forEach((el,i)=>{
+    const l=c.locs[i];if(!l)return;
+    const o=parts(l.tz,c.h,now);
+    el.querySelector(".hm").textContent=o.hour+":"+o.minute;
+    el.querySelector(".sc").textContent=c.sec?":"+o.second:"";
+    el.querySelector(".ap").textContent=c.h==="12"?(o.dayPeriod||""):"";
+    el.querySelector(".dt").textContent=o.weekday+" "+o.day+" "+o.month;
+    const w=wx[wxKey(l)];
+    const tp=el.querySelector(".tp");
+    const html=w?icon(w.k,w.d)+"<span>"+Math.round(c.unit==="f"?w.c*9/5+32:w.c)+"°"+(c.unit==="f"?"F":"C")+"</span>":"<span>--°</span>";
+    if(tp.dataset.h!==html){tp.innerHTML=html;tp.dataset.h=html}
+  });
+}
+
+let wxTimer=0;
+async function loadWx(){
+  const locs=cfg.locs;
+  if(!locs.length)return true;
+  const url="https://api.open-meteo.com/v1/forecast?latitude="+locs.map(l=>l.la).join(",")+"&longitude="+locs.map(l=>l.lo).join(",")+"&current=temperature_2m,weather_code,is_day&timezone=auto";
+  try{
+    const r=await fetch(url);
+    if(!r.ok)throw new Error("http "+r.status);
+    let j=await r.json();
+    if(!Array.isArray(j))j=[j];
+    j.forEach((d,i)=>{if(locs[i]&&d.current)wx[wxKey(locs[i])]={c:d.current.temperature_2m,k:d.current.weather_code,d:d.current.is_day,live:true}});
+    setStatus("live","Live temperatures from Open-Meteo.");
+    return true;
+  }catch(e){
+    if(!WIDGET){
+      locs.forEach(l=>{wx[wxKey(l)]=sampleWx(l)});
+      setStatus("sample","Showing sample temperatures. Live temperatures load once the file is hosted and opened from your own link.");
+    }
+    return false;
+  }
+}
+function setStatus(kind,text){
+  const s=$("#wxStatus");if(!s)return;
+  s.className="status "+kind;$("#wxText").textContent=text;
+}
+
+if(WIDGET){
+  document.documentElement.classList.add("widget");
+  $("#settings").hidden=true;
+  cfg=fromParams(P);
+  const root=$("#wroot");
+  build(root,cfg);
+  (async function cycle(){
+    const ok=await loadWx();
+    tick(root,cfg);
+    setTimeout(cycle,ok?cfg.wx*60000:60000);
+  })();
+  tick(root,cfg);
+  setInterval(()=>tick(root,cfg),1000);
+}else{
+  initSettings();
+}
+
+function initSettings(){
+  const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+  try{const s=JSON.parse(store.get("tempo-cfg")||"null");if(s){const m=clone(DEF);Object.keys(m).forEach(k=>{if(s[k]!==undefined)m[k]=s[k]});if(Array.isArray(m.locs)&&m.locs.length&&m.locs.every(l=>l&&validTz(l.tz)))cfg=m}}catch(e){}
+  let backdrop="checker";
+  const preview=$("#preview");
+  const base=$("#base");
+  base.value=store.get("tempo-base")||"";
+
+  // timezone suggestions
+  try{const dl=$("#tzlist");(Intl.supportedValuesOf?Intl.supportedValuesOf("timeZone"):[]).forEach(z=>{const o=document.createElement("option");o.value=z;dl.appendChild(o)})}catch(e){}
+  $("#presetSel").innerHTML=PRESETS.map((p,i)=>'<option value="'+i+'">'+esc(p[0])+' ('+esc(p[1])+')</option>').join("");
+
+  // segmented controls
+  document.querySelectorAll(".seg").forEach(seg=>{
+    seg.innerHTML=seg.dataset.o.split("|").map(s=>{const[v,t]=s.split(":");return'<button type="button" data-v="'+v+'" aria-pressed="false">'+esc(t)+'</button>'}).join("");
+    seg.addEventListener("click",e=>{
+      const b=e.target.closest("button");if(!b)return;
+      const k=seg.dataset.k;
+      if(k==="backdrop"){backdrop=b.dataset.v;$("#stage").dataset.bg=backdrop;syncControls();return}
+      cfg[k]=b.dataset.v;changed();
+    });
+  });
+  // other bound controls
+  document.querySelectorAll("[data-k]").forEach(el=>{
+    if(el.classList.contains("seg"))return;
+    el.addEventListener("input",()=>{
+      const k=el.dataset.k;
+      if(el.type==="checkbox")cfg[k]=el.checked;
+      else if(el.type==="range")cfg[k]=+el.value;
+      else if(k==="wx")cfg[k]=+el.value;
+      else cfg[k]=el.value;
+      changed();
+    });
+  });
+
+  function syncControls(){
+    document.querySelectorAll("[data-k]").forEach(el=>{
+      const k=el.dataset.k;
+      if(el.classList.contains("seg")){
+        const cur=k==="backdrop"?backdrop:String(cfg[k]);
+        el.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===cur)));
+      }else if(el.type==="checkbox")el.checked=!!cfg[k];
+      else el.value=cfg[k];
+    });
+    document.querySelectorAll("output[data-o]").forEach(o=>{o.textContent=cfg[o.dataset.o]+"%"});
+  }
+
+  function renderLocs(){
+    const ul=$("#locList");
+    ul.innerHTML=cfg.locs.map((l,i)=>'<li data-i="'+i+'"><input type="text" value="'+esc(l.n)+'" maxlength="24" aria-label="Display name for location '+(i+1)+'"><span class="rowbtns">'
+      +'<button type="button" data-a="up" aria-label="Move up"'+(i===0?" disabled":"")+'>↑</button>'
+      +'<button type="button" data-a="down" aria-label="Move down"'+(i===cfg.locs.length-1?" disabled":"")+'>↓</button>'
+      +'<button type="button" data-a="del" aria-label="Remove"'+(cfg.locs.length===1?" disabled":"")+'>✕</button></span>'
+      +'<span class="tzs">'+esc(l.tz)+' · '+l.la+', '+l.lo+'</span></li>').join("");
+    $("#locHint").textContent=cfg.locs.length>=6?"Maximum of 6 locations reached.":"Up to 6 locations.";
+  }
+  $("#locList").addEventListener("input",e=>{
+    const li=e.target.closest("li");if(!li)return;
+    cfg.locs[+li.dataset.i].n=e.target.value;changed(false);
+  });
+  $("#locList").addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b||b.disabled)return;
+    const i=+b.closest("li").dataset.i,a=b.dataset.a;
+    if(a==="del")cfg.locs.splice(i,1);
+    else{const j=a==="up"?i-1:i+1;[cfg.locs[i],cfg.locs[j]]=[cfg.locs[j],cfg.locs[i]]}
+    renderLocs();changed(true);
+  });
+  function addLoc(l){
+    if(cfg.locs.length>=6){$("#cErr").textContent="You can show up to 6 locations.";return false}
+    cfg.locs.push(l);renderLocs();changed(true);return true;
+  }
+  $("#addPreset").addEventListener("click",()=>{$("#cErr").textContent="";addLoc(L(PRESETS[+$("#presetSel").value][0]))});
+  $("#addCustom").addEventListener("click",()=>{
+    const n=cleanName($("#cName").value),tz=$("#cTz").value.trim(),la=parseFloat($("#cLa").value),lo=parseFloat($("#cLo").value);
+    const err=$("#cErr");
+    if(!n)return err.textContent="Enter a name.";
+    if(!validTz(tz))return err.textContent="That time zone is not recognised. Use a name like Asia/Manila.";
+    if(!(la>=-90&&la<=90))return err.textContent="Latitude must be between -90 and 90.";
+    if(!(lo>=-180&&lo<=180))return err.textContent="Longitude must be between -180 and 180.";
+    err.textContent="";
+    if(addLoc({n,tz,la,lo}))["#cName","#cTz","#cLa","#cLo"].forEach(s=>{$(s).value=""});
+  });
+
+  function sizeHint(){
+    const n=cfg.locs.length,s=cfg.scale/100;
+    const w=cfg.style==="plain"?190:215,h=cfg.date||cfg.temp?118:95;
+    let W,H;
+    if(cfg.layout==="row"){W=w*n;H=h}
+    else if(cfg.layout==="col"){W=w;H=h*n}
+    else{W=w*Math.min(2,n);H=h*Math.ceil(n/2)}
+    return Math.round(W*s/10)*10+" × "+Math.round(H*s/10)*10+" px";
+  }
+  function updateUrl(){
+    const b=base.value.trim()||"https://your-site.example/tempo-clock.html";
+    $("#url").textContent=b+"?"+toQuery(cfg);
+    $("#size").textContent=sizeHint();
+  }
+  let wxDebounce=0;
+  function changed(reloadWx){
+    store.set("tempo-cfg",JSON.stringify(cfg));
+    build(preview,cfg);tick(preview,cfg);updateUrl();
+    if(reloadWx!==false&&reloadWx!==undefined&&reloadWx){clearTimeout(wxDebounce);wxDebounce=setTimeout(async()=>{await loadWx();tick(preview,cfg)},400)}
+    syncControls();
+  }
+  base.addEventListener("input",()=>{store.set("tempo-base",base.value);updateUrl()});
+  $("#copy").addEventListener("click",async()=>{
+    const el=$("#url"),msg=$("#copyMsg");
+    try{await navigator.clipboard.writeText(el.textContent);msg.textContent="Copied."}
+    catch(e){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);msg.textContent="Link selected. Press Ctrl+C or Cmd+C to copy."}
+    setTimeout(()=>{msg.textContent=""},3500);
+  });
+
+  renderLocs();syncControls();build(preview,cfg);tick(preview,cfg);updateUrl();
+  loadWx().then(()=>tick(preview,cfg));
+  setInterval(()=>tick(preview,cfg),1000);
+  setInterval(()=>loadWx().then(()=>tick(preview,cfg)),cfg.wx*60000);
+}
+</script>
+
+</html>
